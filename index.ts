@@ -3,11 +3,15 @@ import {
   PlayerEvent,
   PlayerManagerEvent,
   EventRouter,
+  type DefaultPlayerEntity,
 } from "hytopia";
 
 import { loadConfig } from "./src/core/config";
 import { gameEvents } from "./src/core/events";
 import { createConsoleTelemetry, bindTelemetry } from "./src/systems/telemetry";
+
+import { spawnDefaultPlayer } from "./src/gameplay/player";
+import { setupPlayerCamera } from "./src/gameplay/camera";
 
 import {
   loadOverlayUi,
@@ -16,6 +20,12 @@ import {
   bindUiInbound,
   sendUi,
 } from "./src/gameplay/ui";
+
+import {
+  buildBoard3D,
+  spawnPiecesFromFen,
+  wire3DSelection,
+} from "./src/gameplay/chess3d/board3d";
 
 import {
   createRoom,
@@ -40,6 +50,7 @@ startServer((world) => {
   const config = loadConfig({
     features: { flags: { "telemetry.enabled": true } },
     debug: { logLevel: "info", showDebugOverlay: false, logEventHandlerErrors: false },
+    tuning: { camera: { preset: "topDown" } } as any,
   });
 
   const telemetryClient = createConsoleTelemetry({ prefix: "hytopia-chess" });
@@ -48,8 +59,35 @@ startServer((world) => {
 
   const room = createRoom("main");
 
+  // 3D board + pieces
+  const board3d = buildBoard3D({ world, origin: { x: 0, y: 10, z: 0 } });
+  spawnPiecesFromFen({ world, board: board3d, fen: room.chess.fen() });
+
   const players = new Map<string, any>(); // Player
+  const playerEntities = new Map<string, DefaultPlayerEntity>();
   const colors = new Map<string, PlayerColor>();
+
+  const canPlayerMoveFrom = (playerId: string, square: string): boolean => {
+    if (room.status !== "playing") return false;
+    const turn = room.chess.turn();
+    const seat = room.seats[turn];
+    if (!seat || seat.playerId !== playerId) return false;
+
+    const piece = room.chess.get(square as any);
+    if (!piece) return false;
+    return piece.color === turn;
+  };
+
+  wire3DSelection({
+    world,
+    board: board3d,
+    getFen: () => room.chess.fen(),
+    canPlayerMoveFrom,
+    tryMove: (playerId, uci) => applyMove(room, playerId, uci),
+    onAnyMoveApplied: () => {
+      broadcastState();
+    },
+  });
 
   function broadcastState() {
     for (const [playerId, player] of players.entries()) {
@@ -74,6 +112,8 @@ startServer((world) => {
     // keep selection but clear seats for duo; for solo keep white seat
     room.seats = {};
     colors.clear();
+
+    spawnPiecesFromFen({ world, board: board3d, fen: room.chess.fen() });
   }
 
   const globalEvents = EventRouter.globalInstance;
@@ -84,6 +124,20 @@ startServer((world) => {
       players.set(playerId, player);
 
       loadOverlayUi(player);
+
+      // Spawn a player entity + set a chess-friendly camera.
+      const playerEntity = spawnDefaultPlayer({
+        world,
+        player,
+        config,
+        spawnOptions: {
+          name: "Player",
+          spawn: { x: 4, y: 12, z: -6 },
+        },
+      });
+      playerEntities.set(playerId, playerEntity);
+      setupPlayerCamera({ config, player, playerEntity });
+
       toast(player, "Welcome to HYTOPIA Chess", "info");
 
       // Seat assignment on join (lobby only)
@@ -143,6 +197,7 @@ startServer((world) => {
             }
 
             startGame(room);
+            spawnPiecesFromFen({ world, board: board3d, fen: room.chess.fen() });
             toast(player, "Game start", "success");
             broadcastState();
             return;
@@ -158,6 +213,8 @@ startServer((world) => {
               toast(player, res.reason ?? "Illegal move", "warning");
               return;
             }
+
+            spawnPiecesFromFen({ world, board: board3d, fen: room.chess.fen() });
 
             // If game ended, announce
             if ((room as any).status === "ended") {
@@ -189,6 +246,7 @@ startServer((world) => {
 
             if (canStart(room)) {
               startGame(room);
+              spawnPiecesFromFen({ world, board: board3d, fen: room.chess.fen() });
             }
 
             broadcastState();
@@ -210,6 +268,10 @@ startServer((world) => {
       const playerId = String(player.id);
       players.delete(playerId);
       colors.delete(playerId);
+
+      const ent = playerEntities.get(playerId);
+      ent?.despawn();
+      playerEntities.delete(playerId);
 
       // If duo and someone leaves during a game, end and return to lobby.
       if (room.selection.mode === "duo" && room.status === "playing") {

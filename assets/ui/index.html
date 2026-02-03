@@ -203,9 +203,10 @@
       const toastEl = document.getElementById('toast');
       let toastTimer = null;
 
+      // HYTOPIA injects a `hytopia` global with sendData/onData.
+      const HY = (typeof hytopia !== 'undefined' && hytopia) || (window.hytopia || null);
       function send(msg){
-        // HYTOPIA injects `window.hytopia` with sendData.
-        if (window.hytopia && window.hytopia.sendData) window.hytopia.sendData(msg);
+        if (HY && typeof HY.sendData === 'function') HY.sendData(msg);
       }
 
       function showToast(text, tone='info', ttlMs=2200){
@@ -398,32 +399,29 @@
         }
       }
 
-      // HYTOPIA UI receive
-      window.addEventListener('message', (event) => {
-        // Some builds postMessage; but HYTOPIA typically uses injected handler.
-      });
+      // Server -> UI messages
+      if (HY && typeof HY.onData === 'function') {
+        HY.onData((msg) => {
+          if (!msg || typeof msg !== 'object') return;
 
-      // HYTOPIA calls window.onHytopiaData for ui.sendData
-      window.onHytopiaData = (msg) => {
-        if (!msg || typeof msg !== 'object') return;
-
-        if (msg.type === 'ui.toast'){
-          showToast(msg.payload.message, msg.payload.tone, msg.payload.ttlMs);
-          return;
-        }
-        if (msg.type === 'ui.hud'){
-          const slotMap = {
-            topLeft: 'TopLeft', topRight: 'TopRight', bottomLeft: 'BottomLeft', bottomRight: 'BottomRight'
-          };
-          setHud(slotMap[msg.payload.slot] || 'TopLeft', msg.payload.text);
-          return;
-        }
-        if (msg.type === 'ui.state'){
-          state = msg.payload;
-          renderPanel();
-          return;
-        }
-      };
+          if (msg.type === 'ui.toast'){
+            showToast(msg.payload.message, msg.payload.tone, msg.payload.ttlMs);
+            return;
+          }
+          if (msg.type === 'ui.hud'){
+            const slotMap = {
+              topLeft: 'TopLeft', topRight: 'TopRight', bottomLeft: 'BottomLeft', bottomRight: 'BottomRight'
+            };
+            setHud(slotMap[msg.payload.slot] || 'TopLeft', msg.payload.text);
+            return;
+          }
+          if (msg.type === 'ui.state'){
+            state = msg.payload;
+            renderPanel();
+            return;
+          }
+        });
+      }
 
       // Tell server we're ready
       send({ type: 'ui.ready' });

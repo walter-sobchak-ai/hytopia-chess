@@ -109,6 +109,9 @@ export function buildBoard3D(params: {
       const e = new Entity({
         name: `Square ${sq}`,
         tag: `chess.square.${sq}`,
+        // HYTOPIA requires a blockTextureUri or modelUri for Entities.
+        // We render these as invisible but keep a valid block entity.
+        blockTextureUri: "blocks/highlight.png",
         opacity: 0.0,
         rigidBodyOptions: {
           type: RigidBodyType.FIXED,

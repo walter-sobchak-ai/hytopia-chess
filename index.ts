@@ -3,15 +3,14 @@ import {
   PlayerEvent,
   PlayerManagerEvent,
   EventRouter,
-  type DefaultPlayerEntity,
+  // type DefaultPlayerEntity,
 } from "hytopia";
 
 import { loadConfig } from "./src/core/config";
 import { gameEvents } from "./src/core/events";
 import { createConsoleTelemetry, bindTelemetry } from "./src/systems/telemetry";
 
-import { spawnDefaultPlayer } from "./src/gameplay/player";
-import { setupPlayerCamera } from "./src/gameplay/camera";
+// NOTE: v0 uses the engine's default player spawn.
 
 import {
   loadOverlayUi,
@@ -64,7 +63,7 @@ startServer((world) => {
   spawnPiecesFromFen({ world, board: board3d, fen: room.chess.fen() });
 
   const players = new Map<string, any>(); // Player
-  const playerEntities = new Map<string, DefaultPlayerEntity>();
+  // (no custom player entity spawn for v0)
   const colors = new Map<string, PlayerColor>();
 
   const canPlayerMoveFrom = (playerId: string, square: string): boolean => {
@@ -124,19 +123,6 @@ startServer((world) => {
       players.set(playerId, player);
 
       loadOverlayUi(player);
-
-      // Spawn a player entity + set a chess-friendly camera.
-      const playerEntity = spawnDefaultPlayer({
-        world,
-        player,
-        config,
-        spawnOptions: {
-          name: "Player",
-          spawn: { x: 4, y: 12, z: -6 },
-        },
-      });
-      playerEntities.set(playerId, playerEntity);
-      setupPlayerCamera({ config, player, playerEntity });
 
       toast(player, "Welcome to HYTOPIA Chess", "info");
 
@@ -269,9 +255,7 @@ startServer((world) => {
       players.delete(playerId);
       colors.delete(playerId);
 
-      const ent = playerEntities.get(playerId);
-      ent?.despawn();
-      playerEntities.delete(playerId);
+      // (no custom player entity to despawn)
 
       // If duo and someone leaves during a game, end and return to lobby.
       if (room.selection.mode === "duo" && room.status === "playing") {

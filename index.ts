@@ -59,7 +59,9 @@ startServer((world) => {
   const room = createRoom("main");
 
   // 3D board + pieces
-  const board3d = buildBoard3D({ world, origin: { x: 0, y: 10, z: 0 } });
+  // Spawn the board near world origin so it’s easy to find from default spawns.
+  // Center roughly around (0, 1, 0).
+  const board3d = buildBoard3D({ world, origin: { x: -4, y: 1, z: -4 } });
   spawnPiecesFromFen({ world, board: board3d, fen: room.chess.fen() });
 
   const players = new Map<string, any>(); // Player

@@ -1,0 +1,432 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HYTOPIA Chess</title>
+    <style>
+      :root {
+        --bg: rgba(10, 14, 24, 0.86);
+        --panel: rgba(255,255,255,0.07);
+        --border: rgba(255,255,255,0.14);
+        --text: #eaf0ff;
+        --muted: rgba(234,240,255,0.70);
+        --accent: #7aa2ff;
+        --danger: #ff6b7a;
+        --ok: #75ffb7;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--sans);
+        color: var(--text);
+        background: transparent;
+      }
+
+      .toast {
+        position: fixed;
+        left: 20px;
+        bottom: 20px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        max-width: 360px;
+        font-size: 13px;
+        display: none;
+      }
+      .toast.show { display: block; }
+
+      .hud {
+        position: fixed;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+      .hud.topLeft { top: 0; left: 0; }
+      .hud.topRight { top: 0; right: 0; text-align: right; }
+      .hud.bottomLeft { bottom: 0; left: 0; }
+      .hud.bottomRight { bottom: 0; right: 0; text-align: right; }
+
+      .panel {
+        position: fixed;
+        right: 16px;
+        top: 16px;
+        width: 360px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+      }
+
+      .title {
+        font-weight: 700;
+        margin: 0 0 8px;
+        letter-spacing: 0.4px;
+      }
+      .sub {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .row { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+      label { font-size: 12px; color: var(--muted); }
+      select, button {
+        width: 100%;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 10px;
+        font-size: 13px;
+        outline: none;
+      }
+      button { cursor: pointer; }
+      button.primary { border-color: rgba(122,162,255,0.45); }
+
+      .boardWrap {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      canvas { display: block; border-radius: 12px; }
+      .status {
+        margin-top: 10px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .status strong { color: var(--text); }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        margin-left: 6px;
+      }
+      .pill.ok { border-color: rgba(117,255,183,0.45); color: var(--ok); }
+      .pill.bad { border-color: rgba(255,107,122,0.45); color: var(--danger); }
+    </style>
+  </head>
+  <body>
+    <div class="hud topLeft" id="hudTopLeft"></div>
+    <div class="hud topRight" id="hudTopRight"></div>
+    <div class="hud bottomLeft" id="hudBottomLeft"></div>
+    <div class="hud bottomRight" id="hudBottomRight"></div>
+
+    <div class="boardWrap" id="boardWrap" style="display:none">
+      <canvas id="board" width="520" height="520"></canvas>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="panel" id="panel">
+      <h2 class="title" id="panelTitle">HYTOPIA Chess</h2>
+      <p class="sub" id="panelSub">Choose a mode and start.</p>
+
+      <div id="lobbyControls">
+        <div class="row">
+          <div style="flex:1">
+            <label>Mode</label>
+            <select id="mode">
+              <option value="solo">1 Player (vs Computer)</option>
+              <option value="duo">2 Player (local lobby)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1">
+            <label>Difficulty (solo)</label>
+            <select id="difficulty">
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <button class="primary" id="start">Start Game</button>
+        </div>
+        <div class="row" id="waiting" style="display:none">
+          <span style="color:var(--muted); font-size:13px">Waiting for opponent to join…</span>
+        </div>
+      </div>
+
+      <div id="endControls" style="display:none">
+        <div class="row">
+          <button class="primary" id="rematch">Play Again</button>
+        </div>
+        <div class="row">
+          <button id="backToLobby">Back to Lobby</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+      const PIECES = {
+        w: { k: '♔', q: '♕', r: '♖', b: '♗', n: '♘', p: '♙' },
+        b: { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' },
+      };
+
+      let state = null;
+      let selected = null; // square like 'e2'
+      let yourColor = 'w';
+
+      const panelTitle = document.getElementById('panelTitle');
+      const panelSub = document.getElementById('panelSub');
+      const lobbyControls = document.getElementById('lobbyControls');
+      const endControls = document.getElementById('endControls');
+      const waiting = document.getElementById('waiting');
+
+      const modeSel = document.getElementById('mode');
+      const diffSel = document.getElementById('difficulty');
+      const startBtn = document.getElementById('start');
+      const rematchBtn = document.getElementById('rematch');
+      const backBtn = document.getElementById('backToLobby');
+
+      const boardWrap = document.getElementById('boardWrap');
+      const canvas = document.getElementById('board');
+      const ctx = canvas.getContext('2d');
+      const statusEl = document.getElementById('status');
+
+      const toastEl = document.getElementById('toast');
+      let toastTimer = null;
+
+      function send(msg){
+        // HYTOPIA injects `window.hytopia` with sendData.
+        if (window.hytopia && window.hytopia.sendData) window.hytopia.sendData(msg);
+      }
+
+      function showToast(text, tone='info', ttlMs=2200){
+        toastEl.textContent = text;
+        toastEl.className = 'toast show';
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(()=>{ toastEl.className = 'toast'; }, ttlMs);
+      }
+
+      function setHud(slot, text){
+        document.getElementById('hud' + slot).textContent = text || '';
+      }
+
+      function parseFenPieces(fen){
+        const [placement] = fen.split(' ');
+        const rows = placement.split('/');
+        const board = [];
+        for (let r=0;r<8;r++){
+          const row = [];
+          for (const ch of rows[r]){
+            if (ch >= '1' && ch <= '8'){
+              const n = Number(ch);
+              for (let i=0;i<n;i++) row.push(null);
+            } else {
+              const color = (ch === ch.toUpperCase()) ? 'w' : 'b';
+              const type = ch.toLowerCase();
+              row.push({ color, type });
+            }
+          }
+          board.push(row);
+        }
+        return board;
+      }
+
+      function squareToCoord(sq){
+        const file = sq.charCodeAt(0) - 'a'.charCodeAt(0); // 0..7
+        const rank = Number(sq[1]) - 1; // 0..7 from white side
+        return { file, rank };
+      }
+
+      function coordToSquare(file, rank){
+        return String.fromCharCode('a'.charCodeAt(0)+file) + String(rank+1);
+      }
+
+      function draw(){
+        if (!state || state.screen !== 'game') return;
+        const fen = state.game.fen;
+        yourColor = state.game.yourColor;
+        const board = parseFenPieces(fen);
+
+        const size = canvas.width;
+        const cell = size/8;
+
+        ctx.clearRect(0,0,size,size);
+
+        // Board orientation: if black, flip.
+        const flip = yourColor === 'b';
+
+        for (let y=0;y<8;y++){
+          for (let x=0;x<8;x++){
+            const light = (x+y)%2===0;
+            ctx.fillStyle = light ? 'rgba(240,240,255,0.92)' : 'rgba(75,110,190,0.55)';
+            ctx.fillRect(x*cell, y*cell, cell, cell);
+          }
+        }
+
+        if (selected){
+          const {file, rank} = squareToCoord(selected);
+          const sx = flip ? (7-file) : file;
+          const sy = flip ? rank : (7-rank);
+          ctx.fillStyle = 'rgba(122,162,255,0.35)';
+          ctx.fillRect(sx*cell, sy*cell, cell, cell);
+        }
+
+        // Pieces
+        ctx.font = `${cell*0.72}px serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        for (let r=0;r<8;r++){
+          for (let f=0;f<8;f++){
+            const p = board[r][f];
+            if (!p) continue;
+            // fen rows are from rank 8->1. Convert to rank index.
+            const rank = 7-r;
+            const file = f;
+            const x = flip ? (7-file) : file;
+            const y = flip ? rank : (7-rank);
+            const glyph = PIECES[p.color][p.type];
+            ctx.fillStyle = p.color === 'w' ? 'rgba(20,24,35,0.95)' : 'rgba(10,10,10,0.95)';
+            ctx.fillText(glyph, x*cell + cell/2, y*cell + cell/2);
+          }
+        }
+
+        // Status
+        const status = state.game.status;
+        const turn = state.game.turn;
+        const you = state.game.yourColor;
+        const yourTurn = (turn === you);
+        const pill = yourTurn ? '<span class="pill ok">Your turn</span>' : '<span class="pill">Opponent</span>';
+        const checkPill = (status === 'check') ? '<span class="pill bad">Check</span>' : '';
+        statusEl.innerHTML = `<strong>Turn:</strong> ${turn==='w'?'White':'Black'} ${pill} ${checkPill}`;
+      }
+
+      function onClick(evt){
+        if (!state || state.screen !== 'game') return;
+        if (state.game.status !== 'playing' && state.game.status !== 'check') return;
+
+        const rect = canvas.getBoundingClientRect();
+        const x = evt.clientX - rect.left;
+        const y = evt.clientY - rect.top;
+        const cell = canvas.width/8;
+        const fx = Math.floor(x / cell);
+        const fy = Math.floor(y / cell);
+
+        const flip = state.game.yourColor === 'b';
+        const file = flip ? (7-fx) : fx;
+        const rank = flip ? fy : (7-fy);
+        const sq = coordToSquare(file, rank);
+
+        if (!selected){
+          selected = sq;
+          draw();
+          return;
+        }
+
+        const from = selected;
+        const to = sq;
+        selected = null;
+        draw();
+
+        send({ type: 'ui.action', action: 'game.move', payload: { uci: from+to } });
+      }
+
+      canvas.addEventListener('click', onClick);
+
+      startBtn.addEventListener('click', () => {
+        send({ type: 'ui.action', action: 'lobby.set', payload: { mode: modeSel.value, difficulty: diffSel.value } });
+        send({ type: 'ui.action', action: 'lobby.start' });
+      });
+
+      modeSel.addEventListener('change', () => {
+        send({ type: 'ui.action', action: 'lobby.set', payload: { mode: modeSel.value } });
+      });
+
+      diffSel.addEventListener('change', () => {
+        send({ type: 'ui.action', action: 'lobby.set', payload: { difficulty: diffSel.value } });
+      });
+
+      rematchBtn.addEventListener('click', () => {
+        send({ type: 'ui.action', action: 'end.rematch' });
+      });
+
+      backBtn.addEventListener('click', () => {
+        send({ type: 'ui.action', action: 'end.backToLobby' });
+      });
+
+      function renderPanel(){
+        if (!state) return;
+        if (state.screen === 'lobby'){
+          lobbyControls.style.display = '';
+          endControls.style.display = 'none';
+          boardWrap.style.display = 'none';
+
+          panelTitle.textContent = 'HYTOPIA Chess';
+          panelSub.textContent = 'Choose a mode and start.';
+          modeSel.value = state.lobby.mode;
+          diffSel.value = state.lobby.difficulty;
+          waiting.style.display = state.lobby.waitingForOpponent ? '' : 'none';
+        }
+
+        if (state.screen === 'game'){
+          lobbyControls.style.display = 'none';
+          endControls.style.display = 'none';
+          boardWrap.style.display = '';
+
+          panelTitle.textContent = 'Game';
+          panelSub.textContent = (state.game.yourColor === 'w') ? 'You are White.' : 'You are Black.';
+          draw();
+        }
+
+        if (state.screen === 'end'){
+          lobbyControls.style.display = 'none';
+          endControls.style.display = '';
+          boardWrap.style.display = '';
+
+          const result = state.end.result;
+          panelTitle.textContent = 'Game Over';
+          panelSub.textContent = `${result.toUpperCase()} (${state.end.reason})`;
+        }
+      }
+
+      // HYTOPIA UI receive
+      window.addEventListener('message', (event) => {
+        // Some builds postMessage; but HYTOPIA typically uses injected handler.
+      });
+
+      // HYTOPIA calls window.onHytopiaData for ui.sendData
+      window.onHytopiaData = (msg) => {
+        if (!msg || typeof msg !== 'object') return;
+
+        if (msg.type === 'ui.toast'){
+          showToast(msg.payload.message, msg.payload.tone, msg.payload.ttlMs);
+          return;
+        }
+        if (msg.type === 'ui.hud'){
+          const slotMap = {
+            topLeft: 'TopLeft', topRight: 'TopRight', bottomLeft: 'BottomLeft', bottomRight: 'BottomRight'
+          };
+          setHud(slotMap[msg.payload.slot] || 'TopLeft', msg.payload.text);
+          return;
+        }
+        if (msg.type === 'ui.state'){
+          state = msg.payload;
+          renderPanel();
+          return;
+        }
+      };
+
+      // Tell server we're ready
+      send({ type: 'ui.ready' });
+    </script>
+  </body>
+</html>

@@ -112,6 +112,7 @@ export function buildBoard3D(params: {
         // HYTOPIA requires a blockTextureUri or modelUri for Entities.
         // We render these as invisible but keep a valid block entity.
         blockTextureUri: "blocks/highlight.png",
+        blockHalfExtents: { x: 0.5, y: 0.1, z: 0.5 },
         opacity: 0.0,
         rigidBodyOptions: {
           type: RigidBodyType.FIXED,
